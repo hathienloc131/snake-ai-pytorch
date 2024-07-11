@@ -26,8 +26,8 @@ BLACK = (0,0,0)
 BLOCK_SIZE = 20
 SPEED = 10000
 
-EAT = 10
-DEAD = -10
+EAT = 1
+DEAD = -0.5
 
 class SnakeGameAI:
 
@@ -80,9 +80,9 @@ class SnakeGameAI:
         # dis = max(math.sqrt((self.head.x//BLOCK_SIZE - self.food.x//BLOCK_SIZE)**2 + (self.head.y//BLOCK_SIZE - self.food.y//BLOCK_SIZE)**2), 1)
         reward = 0
         game_over = False
-        if self.is_collision() or self.frame_iteration > 100*len(self.snake):
+        if self.is_collision() or self.frame_iteration > 150*len(self.snake):
             game_over = True
-            reward += DEAD * (1 - (len(self.snake)/((self.w / BLOCK_SIZE) * (self.h / BLOCK_SIZE)))) - 10
+            reward += DEAD * (1 - (len(self.snake)/((self.w / BLOCK_SIZE) * (self.h / BLOCK_SIZE)))) + DEAD
             return reward, game_over, self.score
 
         # 4. place new food or just move

@@ -20,6 +20,10 @@ class Linear_QNet(nn.Module):
             nn.Tanh(),
             nn.Linear(hidden_size, output_size)            
         )
+        self.init_weights()
+    def init_weights(self, param_init=0.1):
+        for param in self.parameters():
+            nn.init.uniform_(param, -param_init, param_init)
 
     def forward(self, x):
         x = x.to(self.device)
@@ -36,19 +40,26 @@ class Linear_QNet(nn.Module):
 
 
 class QTrainer:
-    def __init__(self, lr, gamma):
+    def __init__(self, lr, gamma, episodes):
         self.lr = lr
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
         self.gamma = gamma
+        self.episodes = episodes
 
-        self.TARGET_REPLACE_FREQ = 10 
+        self.TARGET_REPLACE_FREQ = 2 
         self.learn_step_counter = 0
-        self.evaluate_net  = Linear_QNet(16, 256, 3, self.device).to(self.device)
-        self.target_net = Linear_QNet(16, 256, 3, self.device).to(self.device)
+        self.evaluate_net  = Linear_QNet(72, 128, 3, self.device).to(self.device)
+        self.target_net = Linear_QNet(72, 128, 3, self.device).to(self.device)
         self.target_net.load_state_dict(self.evaluate_net.state_dict())
         self.optimizer = optim.Adam(self.evaluate_net.parameters(), lr=self.lr)
         self.criterion = nn.MSELoss()
+
+    def lr_decay(self):
+        lr_now = self.lr * (1.0 - self.learn_step_counter*0.9 / self.episodes)
+        for p in self.optimizer.param_groups:
+            p['lr'] = lr_now
+        return lr_now
 
     def train_step(self, state, action, reward, next_state, done):
         
@@ -81,10 +92,12 @@ class QTrainer:
     
         self.optimizer.zero_grad()
         loss = self.criterion(q_eval, target)
+        torch.nn.utils.clip_grad_norm_(self.evaluate_net.parameters(), 0.5)
         loss.backward()
 
         self.optimizer.step()
-        return loss.item()
+        lr_now = self.lr_decay()
+        return loss.item(), lr_now
 
 
 

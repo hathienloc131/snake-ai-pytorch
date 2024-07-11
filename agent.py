@@ -8,23 +8,23 @@ from helper import plot
 import wandb
 wandb.init(project="snake-ai-pytorch")
 
-MAX_MEMORY = 100_000
-BATCH_SIZE = 4096
+MAX_MEMORY = 1_000_000
+BATCH_SIZE = 1024
 LR = 0.0001
-MAX_VIEW = 16
+MAX_VIEW = 8
 class Agent:
 
-    def __init__(self):
+    def __init__(self, episodes):
         self.n_games = 0
         self.n_steps = 0
         self.max_step = 500000
         self.epsilon = 1.0 # randomness
-        self.min_epsilon = 0.1 # no randomness
-        self.epsilon_decay = 0.995 # epsilon decay rate
+        self.min_epsilon = 0.05 # no randomness
+        self.epsilon_decay = 0.9995 # epsilon decay rate
         self.gamma = 0.95 # discount rate
         self.memory = deque(maxlen=MAX_MEMORY) # popleft()
 
-        self.trainer = QTrainer(lr=LR, gamma=self.gamma)
+        self.trainer = QTrainer(lr=LR, gamma=self.gamma, episodes=episodes)
 
 
     def get_state(self, game):
@@ -41,24 +41,23 @@ class Agent:
         total_point_view = [point_l, point_r, point_u, point_d, point_ul, point_ur, point_dl, point_dr]
         point_view = []
         for point_dir in total_point_view:
-            current_idx = 0
+            current_point_view = []
+            # current_idx = 0
             for idx, point in enumerate(point_dir):
-                if game.is_collision(point):
-                    current_idx = (idx + 1) 
+                collision = game.is_collision(point)
+                current_point_view.append(collision)
+                if collision:
+                    current_point_view.extend([1] * (MAX_VIEW - len(current_point_view)))
                     break
-            point_view.append(current_idx * 1.0 / MAX_VIEW)
+            point_view.extend(current_point_view)
+            # point_view.append(current_idx * 1.0 / MAX_VIEW)
         
         dir_l = game.direction == Direction.LEFT
         dir_r = game.direction == Direction.RIGHT
         dir_u = game.direction == Direction.UP
         dir_d = game.direction == Direction.DOWN
 
-        pos_x = head.x / game.w
-        pos_y = head.y / game.h
-        
-        food_x = game.food.x / game.w
-        food_y = game.food.y / game.h
-        # 8 + 4 + 2 + 2 = 16
+        # 8*8 + 4 + 4 = 16
         state = [
 
             *point_view,
@@ -69,12 +68,10 @@ class Agent:
             dir_d,
             
             # head location
-            pos_x,
-            pos_y,
-            
-            # Food location 
-            food_x,
-            food_y
+            game.food.x < head.x,
+            game.food.x > head.x,
+            game.food.y < head.y,
+            game.food.y > head.y
             ]
 
         return np.array(state, dtype=int)
@@ -92,10 +89,10 @@ class Agent:
             mini_sample = self.memory
 
         states, actions, rewards, next_states, dones = zip(*mini_sample)
-        loss = self.trainer.train_step(states, actions, rewards, next_states, dones)
+        loss, lr_now = self.trainer.train_step(states, actions, rewards, next_states, dones)
         #for state, action, reward, nexrt_state, done in mini_sample:
         #    self.trainer.train_step(state, action, reward, next_state, done)
-        return loss
+        return loss, lr_now
 
     def train_short_memory(self, state, action, reward, next_state, done):
         self.trainer.train_step(state, action, reward, next_state, done)
@@ -116,14 +113,14 @@ class Agent:
 
 
 def train():
-    episodes = 100000000
-    max_step = 500
+    episodes = 10000000
+    max_step = 1500
     total_score = 0
     record = 0
-    agent = Agent()
+    agent = Agent(episodes)
     game = SnakeGameAI()
     total_reward = 0
-    log_step = 50
+    log_step = 25
     total_loss = 0
     for i in range(episodes):
         for t in range(max_step):
@@ -137,7 +134,7 @@ def train():
             total_reward += reward
             state_new = agent.get_state(game)
             # train short memory
-            agent.train_short_memory(state_old, final_move, reward, state_new, done)
+            # agent.train_short_memory(state_old, final_move, reward, state_new, done)
 
             # remember
             agent.remember(state_old, final_move, reward, state_new, done)
@@ -153,13 +150,14 @@ def train():
                 if agent.epsilon > agent.min_epsilon:
                     agent.epsilon *= agent.epsilon_decay
 
-                loss = agent.train_long_memory()
+                loss, lr_now = agent.train_long_memory()
                 total_loss += loss
                 agent.trainer.evaluate_net.save("model_latest.pth")
                 if agent.n_games % log_step == 0:
-                    wandb.log({"Mean Score": total_score/log_step, 'Record': record, "Mean Reward": total_reward/log_step, "Epsilon": agent.epsilon, "Episode": agent.n_games, "Loss": total_loss/log_step})
+                    wandb.log({"Mean Score": total_score/log_step, 'Record': record, "Mean Reward": total_reward/log_step, "Epsilon": agent.epsilon, "Episode": agent.n_games, "Loss": total_loss/log_step, "lr": lr_now})
                     total_reward = 0
                     total_score = 0
+                    total_loss = 0
                 break
 
 
